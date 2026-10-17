@@ -1,0 +1,152 @@
+<title>Xotira Grafigi</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Obsidian-style graph view: full-bleed force canvas, floating search top-left, slide-in note panel right */
+:root{
+  --bg:#f4f3ef; --panel:#faf9f6; --fg:#23211c; --muted:#6f6a5f; --line:#e0ddd3;
+  --edge:#c9c4b6; --edge-hot:#b07a3c; --accent:#b07a3c; --glow:rgba(176,122,60,.25);
+  --disp:"Iowan Old Style",Georgia,"Times New Roman",serif;
+  --body:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:ui-monospace,"SF Mono",Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#191a1c; --panel:#202123; --fg:#dcddde; --muted:#8a8c90; --line:#2f3033;
+  --edge:#3a3b3e; --edge-hot:#e0a35e; --accent:#e0a35e; --glow:rgba(224,163,94,.22); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#191a1c; --panel:#202123; --fg:#dcddde; --muted:#8a8c90; --line:#2f3033;
+  --edge:#3a3b3e; --edge-hot:#e0a35e; --accent:#e0a35e; --glow:rgba(224,163,94,.22); color-scheme:dark}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--body);overflow:hidden}
+#stage{position:fixed;inset:0}
+canvas{display:block;touch-action:none}
+.hud{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));left:calc(12px + env(safe-area-inset-left,0px));z-index:3;display:flex;flex-direction:column;gap:10px;max-width:min(300px,calc(100% - 24px))}
+.brand{font-family:var(--disp);font-size:19px;letter-spacing:.01em;line-height:1.2}
+.sub{font-size:12px;color:var(--muted);margin-top:2px}
+input{font:inherit;font-size:14px;padding:8px 11px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--fg);width:100%;box-sizing:border-box}
+input:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.legend{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11.5px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.dot{width:9px;height:9px;border-radius:50%}
+.hint{font-size:11px;color:var(--muted);line-height:1.45}
+.panel{position:fixed;top:0;right:0;height:100%;width:min(380px,88vw);background:var(--panel);border-left:1px solid var(--line);z-index:4;transform:translateX(100%);transition:transform .22s ease;display:flex;flex-direction:column;box-shadow:-12px 0 40px rgba(0,0,0,.14);padding-right:env(safe-area-inset-right,0px)}
+.panel.open{transform:none}
+@media (prefers-reduced-motion:reduce){.panel{transition:none}*{scroll-behavior:auto}}
+.phead{padding:18px 18px 12px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:flex-start}
+.phead h2{font-family:var(--disp);font-size:20px;margin:0;line-height:1.2;flex:1;min-width:0;word-break:break-word}
+.badge{font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:5px;white-space:nowrap;margin-top:3px}
+.x{border:none;background:none;color:var(--muted);font-size:22px;line-height:1;cursor:pointer;padding:0 2px}
+.pbody{padding:14px 18px 28px;overflow-y:auto;font-size:14px;line-height:1.6}
+.pbody .desc{color:var(--muted);font-style:italic;margin:0 0 14px}
+.pbody pre{white-space:pre-wrap;word-break:break-word;font-family:var(--body);margin:0}
+.pbody .wl{margin-top:16px;padding-top:12px;border-top:1px solid var(--line)}
+.pbody .wl b{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.chipwrap{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.lnk{font:inherit;font-size:12.5px;padding:4px 9px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--accent);cursor:pointer}
+.meta-path{font-family:var(--mono);font-size:11px;color:var(--muted);margin:2px 0 12px;word-break:break-all}
+</style>
+
+<div id="stage"><canvas id="c"></canvas></div>
+
+<div class="hud">
+  <div>
+    <div class="brand" id="brand">Xotira Grafigi</div>
+    <div class="sub" id="count"></div>
+  </div>
+  <input id="q" type="search" placeholder="Qidirish…" aria-label="Qidirish" autocomplete="off">
+  <div class="legend" id="legend"></div>
+  <div class="hint">Tugunni torting. Ustiga borsa bog'liqlari yonadi, bossa qaydi o'ngda ochiladi. G'ildirak — masshtab, bo'sh joy — surish.</div>
+</div>
+
+<aside class="panel" id="panel" aria-hidden="true">
+  <div class="phead">
+    <h2 id="pt"></h2>
+    <span class="badge" id="pb"></span>
+    <button class="x" id="px" aria-label="Yopish">&times;</button>
+  </div>
+  <div class="pbody">
+    <div class="meta-path" id="ppath"></div>
+    <p class="desc" id="pd"></p>
+    <pre id="pbody"></pre>
+    <div class="wl" id="pwl" hidden><b>Bog'langan</b><div class="chipwrap" id="pchips"></div></div>
+  </div>
+</aside>
+
+<script>
+const GRAPH = {"nodes": [{"id": "MEMORY", "label": "MEMORY", "type": "note", "desc": "", "path": "MEMORY.md", "body": "- [AI Factory project](ai-factory-project.md) — goals, hardware, SaaS licensing constraint, Uzbek-speaking user\n- [Bronla: additive only](bronla-additive-only.md) — never delete existing code/params/text on Bronla, only add\n- [Bronla AI readiness](bronla-ai-readiness.md) — 99/100 after 2026-10-07 deploy; live_readiness.py; remaining: Review schema, manual booking/brand tests\n- [Scoutvane (ex Signal Scout)](signal-scout-project.md) — ideas-DB automation in D:\\DEVELOMENTS\\SCOUTVANE, private repo, API key still missing\n- [Bronla IndexNow](bronla-indexnow.md) — key, key file, full submit done 2026-10-07; next: backend auto-ping\n- [Bronla marketing hub](bronla-marketing-hub.md) — ads/analytics/AI/ML plan in BRONLA/docs, postponed 2026-10-15\n- [Skill hub](skill-hub.md) — ~188 skills in AI-FACTORY/runtime/vendor, found on demand via global skill-hub skill + INDEX.md\n- [Bronla region split](bronla-region-split.md) — Province→District→Place bo'linishi: qarorlar, 1-bosqich yozildi 2026-10-15", "links": ["ai-factory-project", "bronla-additive-only", "bronla-ai-readiness", "bronla-indexnow", "bronla-marketing-hub", "bronla-region-split", "signal-scout-project", "skill-hub"]}, {"id": "ai-factory-project", "label": "ai-factory-project", "type": "note", "desc": "AI Factory — user's main project at d:\\\\DEVELOMENTS\\\\ai-factory; goals, hardware, monetization constraint", "path": "ai-factory-project.md", "body": "AI Factory: a self-improving AI command center (social media control, builds sites/bots/agents, advises). Spec drafts in `d:\\DEVELOMENTS\\AI Factory Master Specification\\` (ChatGPT-made docx generators + github.txt repo list). Phase 0 docs written 2026-10-04 in `d:\\DEVELOMENTS\\ai-factory\\docs\\`.\n\n**Why:** Personal/local first, later moved to a server as a paid multi-user SaaS — so licensing of reused repos matters (no AGPL/no-SaaS code in core; Open WebUI branding clause).\n\n**How to apply:** User prefers building on existing open-source bases over from-scratch; knows both Python and TS. Hardware: i7-13620H, 16 GB RAM, RTX 4050 6 GB VRAM, Windows 11; no Docker/Ollama/gh installed as of 2026-10-04; C: drive 86% full. User writes in Uzbek — reply in Uzbek.\n\nCore requirement (2026-10-04): hierarchical multi-agent team — Director/Supervisor plans a task DAG, parallel worker agents, reviewer/QA agents that check outputs, watchdog for budget/loops. See docs/architecture.md section 4.\n\nUser preference (2026-10-05): EVERYTHING for AI Factory lives inside the single folder d:\\DEVELOMENTS\\ai-factory (program installs, models, caches, cloned repos, data, logs under runtime\\). Never scatter files to AppData/C: or elsewhere. User env vars OLLAMA_MODELS, UV_CACHE_DIR, npm_config_cache already point into ai-factory\\runtime\\.\n\nStatus 2026-10-05: Phase 1 built in d:\\DEVELOMENTS\\ai-factory (FastAPI + SQLAlchemy/Alembic + DB job queue worker + React/Vite/Tailwind). Own provider adapters (anthropic SDK + openai SDK), NOT LiteLLM. Start: .\\start.ps1 → http://127.0.0.1:8710. Not yet tested with a real Anthropic key (user has none added yet). Next: Phase 2 (Claude Agent SDK coding runtime, skill registry, codebase-memory-mcp). Repo not git-initialized yet.\n\nStatus 2026-10-05 (later): Phase 2 done — code mode via claude-agent-sdk using the npm-installed native claude.exe (%APPDATA%\\npm\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe; SDK has no Windows wheel with bundled CLI), policy allow/ask/deny with approval gate, skill registry (8 libs in runtime/vendor), MCP registry, files/history UI. 60 tests. Pending: user permission to download codebase-memory-mcp v0.11.0 windows-amd64.zip (~40 MB); new UI pages not yet clicked through in a browser (Chrome extension disconnected).\n\nStatus 2026-10-05 (late): Phase 3 done (evaluator → memories, skill proposals via approval into runtime/vendor/ai-factory-learned, advisor reports on a schedule, stats). 65 tests. codebase-memory-mcp v0.11.0 downloaded (SHA-256 verified) to runtime/tools/codebase-memory-mcp but NOT registered: it refuses D:\\DEVELOMENTS because the folder ACL grants write to an unknown SID (...-3747978795). Waiting on user: fix ACL themselves, or allow CBM index in ~/.cache (exception to one-folder rule). Next phase: 4 — connectors (Telegram first), social media, Flowise.\n\nStatus 2026-10-05 (night): Phase 4 Telegram part done — connectors (encrypted token, autonomy off/approve/auto), notification outbox, Telegram inline-button approvals (owner chat ids only), /status, content pipeline draft→approval→scheduled publish, metrics. 73 tests. Remaining Phase 4: YouTube/Meta/X/TikTok (need user's OAuth apps), Flowise. Tooling lesson: never put \"\\n\" inside python heredoc edits via the Bash tool — it becomes a real newline; use Write/Edit tools or a script file.\n\nStatus 2026-10-05 (very late): Phase 5 video part done — templates/remotion (Remotion 4.0.532, parametric Story composition), Video model, storyboard by agent → approval → worker render (one at a time) → MP4 in <project>/videos → Telegram sendVideo. Real render verified (8 s portrait in ~10 s). 78 tests. Not done: TTS/music, image/video backgrounds, other social platforms, Flowise, codebase-memory-mcp (ACL decision pending).\n\nStatus 2026-10-05 (end): Phase 6 readiness done — roles/invites/signup/workspace switching/admin-only secrets, login throttle, tenant isolation tests, PostgreSQL verified via pgserver (AIFACTORY_TEST_DB=postgres), backup/", "links": []}, {"id": "bronla-additive-only", "label": "bronla-additive-only", "type": "note", "desc": "On Bronla projects, never delete or remove existing code/params/text — only add", "path": "bronla-additive-only.md", "body": "User (2026-10-07): \"hech narsani o'chirma, qo'shsang bo'ladi faqat\" — when changing Bronla (BRONLA-BACKEND, BRONLA-MCP-SERVER, BRONLA-FRONTEND, llms.txt), do not remove existing things; only add.\n\n**Why:** live production platform with external clients (MCP registry, AI agents) relying on existing params/fields; removals break them.\n\n**How to apply:** keep old params as aliases (e.g. MCP `province_id` kept next to new `province`), add new fields/sections instead of rewriting. If something existing is factually wrong, add a correction and ask before deleting.", "links": []}, {"id": "bronla-ai-readiness", "label": "bronla-ai-readiness", "type": "note", "desc": "Bronla AI readiness status (2026-10-07): live test script, score 99/100, what remains", "path": "bronla-ai-readiness.md", "body": "2026-10-07: Bronla AI readiness work deployed (backend sort NULLS LAST + region-name search; MCP `province`/`amenities`/`lang`/`list_search_filters`/`price_value`/`location_summary`/`map_url`). Production server is DigitalOcean Frankfurt, MCP at /home/BRONLA-MCP-SERVER (systemd `bronla-mcp`). Measure with `python3 tests/live_readiness.py` in BRONLA-MCP-SERVER → 99/100 after deploy.\n\n**Why:** user's goal is \"any AI finds Bronla → searches via MCP → checks availability/price → books\"; ChatGPT audits were partly wrong (it couldn't reach endpoints), so the live test is the source of truth.\n\n2026-10-08: MCP login page now has Google + Apple sign-in (mcp_server/social_login.py, env MCP_GOOGLE_CLIENT_ID/SECRET, MCP_APPLE_CLIENT_ID=com.bronla.web), deployed and redirects verified. I cannot SSH to prod (164.90.160.75, hosts site+api+mcp) — permission denied by classifier; user runs deploy commands. Claude Connectors Directory submission SENT 2026-10-08 (slug bronla-uz, OAuth DCR, \"required when server asks\", reviewers told to use Google/Apple sign-in + a test listing); track at claude.ai/directory/manage. Earlier plan was (reviewer phone +998935954665 via backend REVIEW_LOGIN_PHONE/CODE env). Google client secret was pasted in chat — user should rotate it.\n\n**How to apply:** remaining gaps — per-review `Review` JSON-LD on listing pages (detail API has only review count; frontend must fetch reviews), manual real booking via SMS OAuth, manual brand test in ChatGPT/Gemini/Perplexity. Follow [[bronla-additive-only]].", "links": ["bronla-additive-only"]}, {"id": "bronla-indexnow", "label": "bronla-indexnow", "type": "note", "desc": "Bronla IndexNow setup (2026-10-07): key, key file location, initial full submit done", "path": "bronla-indexnow.md", "body": "2026-10-07: IndexNow live for bronla.uz. Key `33102b0eedbe4b258b865ff2a765fe57` (from Bing Webmaster), file at BRONLA-FRONTEND/public/<key>.txt (served 200; middleware skips .txt). Initial submit of all sitemap URLs done (764 unique → 200). Sitemap https://bronla.uz/sitemap.xml submitted in Bing Webmaster (9 child sitemaps).\n\n**Why:** speed up Bing/Yandex indexing; Yandex matters in UZ.\n\n**How to apply:** don't resubmit full sitemap repeatedly; next step offered — backend hook to ping changed listing URLs (uz/ru/en). bronla.tj not yet set up. Follow [[bronla-additive-only]].", "links": ["bronla-additive-only"]}, {"id": "bronla-marketing-hub", "label": "bronla-marketing-hub", "type": "note", "desc": "Bronla marketing hub (ads+analytics in CONSOLE, Claude weekly report, sklearn weekly retrain) — planned, postponed 2026-10-15", "path": "bronla-marketing-hub.md", "body": "Plan written to D:\\DEVELOMENTS\\BRONLA\\docs\\marketing-hub-plan.md on 2026-10-15; user postponed it (\"keyinga qoldiramiz\"). No code written yet.\n\n**Why:** user wants GA4, Metrika, GSC, Google Ads, Meta, IG/FB, YouTube, Telegram in one CONSOLE page + AI analytics + weekly self-retraining ML.\n\n**How to apply:** when resumed, start from the plan doc; first steps are stage 0 credentials (GA4/GSC service account, Metrika token, Google Ads developer token) and booking attribution (UTM/gclid/fbclid). Follow [[bronla-additive-only]].", "links": ["bronla-additive-only"]}, {"id": "bronla-region-split", "label": "bronla-region-split", "type": "note", "desc": "Bronla hududlar bo'linishi (Province → District → Place) — qarorlar, bosqichlar, holat", "path": "bronla-region-split.md", "body": "Muammo: Province jadvalida viloyat, tuman va joylar (Chorvoq, Qibray, Andijon...) aralash. Maqsad: Country → Province → District → Place (yangi model).\n\nQarorlar (user, 2026-10-15):\n- Filtr: viloyat va tuman bittadan tanlanadi, Place bir nechta (`place=1|2`).\n- Barcha O'zbekiston tuman/shaharlari bazaga seed qilinadi, lekin filtrda faqat dachasi borlari ko'rinadi.\n- UI: namunadagi drill-down (Viloyat > ichida \"Butun viloyat\" + tumanlar > joylar) + tepada nom bo'yicha qidiruv (viloyat/tuman/joy, yonida qayerdaligi).\n- FRONTEND va PARTNERS ikkalasida filtr o'zgaradi.\n- Eski Province yozuvlari o'chirilmaydi: `migrated_to_district` / `migrated_to_place` orqali eski URL/ID ishlaydi ([[bronla-additive-only]]).\n\nHolat 2026-10-15: 1-bosqich (modellar + migratsiyalar content 0009, bot 0007, property 0007) yozildi, serverda hali ishga tushirilmagan. Zaxira nusxalari scratchpad'da edi.\nOchiq savollar: G'azalkent (tuman/joy?), Chimyon = Chimgan (Bo'stonliq)?, Toshkent dengizi qaysi tuman.\n2-bosqich yozildi (2026-10-15): `apps/content/regions_uz.py` (14 viloyat, 205 tuman/shahar), `seed_uz_regions [--dry-run]`, `split_regions [--apply] [--include-unconfirmed]` (LEGACY_MAP; tasdiqlanmaganlar: chimyon, gazalkent, toshkent-dengizi). `--apply` faqat 4-bosqich (Redis/search) chiqqandan keyin.\nUser 2026-10-15: hammasi avval LOKALDA qilinadi, keyin serverga. Lokal: BACKEND/.venv (Django 6.0.6, python-magic-bin kerak), Postgres 17 + Redis Windows service; ishga tushirish: `PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe -W ignore manage.py ...`. Lokal bazaga migratsiya, seed, split --apply qilindi (zaxira: scratchpad local_db_before_regions.dump).\nEski 33 District (slug NULL, kirill nom) -> LEGACY_DISTRICT_MAP; \"Namangan sh.\" -> CITY_PROVINCE_MAP (tasdiqlanmagan).\n3-bosqich tayyor: apps/content/locations.py, `newspecial/locationtree` va `locationsearch` (?kind=house|property, q=).\n4-bosqich tayyor (lokal sinovdan o'tdi): core/utils/region_filter.py (region_filter_q, legacy_region_map) -> house/property SQL search, old_extra.seachHousePart, Redis house_search; Redis indekslar district:/place: (db 2); special.py `_district_or_place_page`, `_legacy_region_selection`; split_regions --apply o'zgargan uylarni reindex qiladi.\nLokal ishga tushirish: scratchpad localrun.sh — TELEGRAM_BOT_TOKEN/PROMO_BOT_TOKEN/SMS_TOKEN ni soxta qiymat bilan bekor qiladi (lokal .env da PROD tokenlar! xato xabari haqiqiy guruhga ketadi). Lokal Redis 5.0 -> .venv da redis<5.\n6-7 bosqich yozildi (2026-10-15, ikkala `next build` OK, brauzerda bosib ko'rilmagan): FRONTEND lib/location.js + components/core/LocationPicker.js (header.json locationPicker 4 til), MobileFilterPart, special/top+main, hotel/top+main; redux `location` + selectLocation; `province` massivi mirror sifatida to'ldiriladi. PARTNERS: lib/location.js, components/location/LocationPicker.js (matn ichida), navbarlarge, special/main. PARTNERS constans.tsx API_ROOT_PATH prodga qotirilgan — lokal sinov uchun 127.0.0.1 kerak.\nLokal: frontend http://localhost-bronla.uz:3000 (NEXT_PUBLIC_API_ROOT_PATH=http://localhost-bronla.uz:8000), backend :8000.\nUser 2026-10-15: viloyat nomlari to'liq bo'lsin (\"sh.\" emas) -> `seed_uz_regions --rename` (eski nom aliases ga). LocationPicker viloyat qatorida pin ikonka (HiOutlineMapPin, kulrang kvadrat).\n8-bosqich (2026-10-16) qisman tayyor va lokal sinovdan o'tdi: admin `section=place` (control/section/catalog/region.py RegionPlaceListData/CreateOrUpdatePlace/DeletePlace, district kind+aliases), CONSOLE region \"Joylar\" tab + house add/edit tuman/joy select (control/section/house/regions.py); MCP `_resolve_location` (locationtree, `province` param istalgan darajani taniydi, fallback eski), list_search_filters `locations`. region_filter qoidasi: ota hudud faqat ichidagisi tanlanganda tashlanadi (effective_region_ids) -> aralash so'rov OR.\nKartochka qoidasi (2026-10-16): ro'yxat/kartochkalarda `province` matni = eng aniq hudud (core/utils/region_address.display_location: joy > tuman > vil", "links": ["bronla-additive-only"]}, {"id": "signal-scout-project", "label": "signal-scout-project", "type": "note", "desc": "Signal Scout — automates the user's startup-ideas spreadsheet (goyalar_bazasi.xlsx) from RSS/Telegram news via Claude; private GitHub repo", "path": "signal-scout-project.md", "body": "Built 2026-10-14; renamed the same day to **Scoutvane**: folder D:\\DEVELOMENTS\\SCOUTVANE, private repo github.com/abbosqahhorov/scoutvane, package/CLI `scoutvane`, DB data/scoutvane.db, tasks Scoutvane-Daily/Weekly. Old folder D:\\DEVELOMENTS\\SIGNAL-SCOUT is a stale copy (VS Code locked it during the rename); the user should delete it. Replaces the manual claude.ai chat \"Muammolarni yechish tizimini yaratish\" where the ideas DB (310 ideas by 2026-10-13) was updated by hand.\n\n**Why:** chat web search kept missing recent news; user wanted the file to stop going stale.\n\n**How to apply:** user's newest xlsx is the one downloaded from that chat; local copy C:\\Users\\Abbos\\Downloads\\goyalar_bazasi.xlsx is the older 2026-10-06 version (293 ideas). Weekly cycle = `scoutvane run --send`. Runs via Task Scheduler: Scoutvane-Daily (collect, 08:00) and Scoutvane-Weekly (Mon 09:00); manage with scripts/install_tasks.ps1 [-Remove]. Runs only while the PC is on and the user is logged in. No ANTHROPIC_API_KEY on the machine as of build, so `analyze` was only tested with a mocked client. GitHub pushes work via Git Credential Manager (no gh CLI installed). **Brand:** on 2026-10-14 the user chose **Scoutvane** as the global brand name (wordmark `scoutvane`, \"scout\" white + \"vane\" cyan, tagline \"SIGNALS BEFORE TRENDS\"). Signal Scout was dropped because every signalscout.* domain is taken and Signal AI works in the same space. scoutvane.com/.ai/.io/.app/.co were all free on 2026-10-14 but not yet bought. Logo/avatar sources are in SIGNAL-SCOUT\\branding (rendered with headless Chrome). Chosen logo: \"F · Qutb yulduzi\" (north star), files in SCOUTVANE\branding\\qutb-yulduzi. Since 2026-10-14 has a self-learning relevance filter (scoutvane/learning.py): Claude labels → local TF-IDF model, 10% explore, retrain every 50 labels, user \"Foydalimi?\" column overrides. Keep the noise-rule list tiny — \"serial entrepreneur\" and the startup \"Футбол+\" were wrongly dropped by sport/serial patterns. Ideas that fit Bronla (#305–307) belong inside Bronla — see [[bronla-additive-only]].", "links": ["bronla-additive-only"]}, {"id": "skill-hub", "label": "skill-hub", "type": "note", "desc": "All third-party skills live in AI-FACTORY/runtime/vendor; found on demand via global skill-hub skill + INDEX.md, not installed globally", "path": "skill-hub.md", "body": "Since 2026-10-16 the user keeps every external skill library (taste-skill, emil-skill, impeccable, hyperframes, remotion-skills, superpowers, mattpocock, marketingskills, context-engineering, stop-slop, archify, diagram-design; ~188 skills) in `D:/DEVELOMENTS/AI-FACTORY/runtime/vendor` (gitignored; AI-FACTORY also imports from there — don't move it).\n\n- `~/.claude/skills/skill-hub/SKILL.md` — global meta-skill: greps `AI-FACTORY/skillsets/INDEX.md`, then reads the matching SKILL.md from vendor and follows it.\n- `AI-FACTORY/skillsets/`: `build-index.ps1` (regenerate INDEX.md after clone/pull), `sync-skills.ps1` (install a set: `global.txt` → ~/.claude/skills, or `-Set video -Target <project>`), set files `global.txt`, `video.txt`. Synced folders carry a `.skill-sync` marker; unmarked ones (graphify etc.) are never overwritten.\n- Visual catalog artifact: https://claude.ai/artifact/VYPNE22uQ6LPoau85NmvVi\n\n**Why:** user wants all skills in one place but usable from any project when needed; installing ~190 globally would bloat every session's context.\n**How to apply:** when a task needs a specialized skill, use skill-hub rather than installing; install permanently only when the user asks. global.txt (10 skills) was written but NOT yet synced as of 2026-10-16.", "links": []}], "links": [["MEMORY", "ai-factory-project"], ["MEMORY", "bronla-additive-only"], ["MEMORY", "bronla-ai-readiness"], ["MEMORY", "bronla-indexnow"], ["MEMORY", "bronla-marketing-hub"], ["MEMORY", "bronla-region-split"], ["MEMORY", "signal-scout-project"], ["MEMORY", "skill-hub"], ["bronla-ai-readiness", "bronla-additive-only"], ["bronla-indexnow", "bronla-additive-only"], ["bronla-marketing-hub", "bronla-additive-only"], ["bronla-region-split", "bronla-additive-only"], ["signal-scout-project", "bronla-additive-only"]]};
+const PALETTE = ["#5b8c6e","#b07a3c","#7b6cc4","#4e8ab0","#b0556a","#8a9a3c","#b08a3c","#5aa0a0","#9a6cb0","#8a8c90"];
+const typeColors={}; let pi=0;
+function colorFor(t){ if(!typeColors[t]) typeColors[t]=PALETTE[pi++ % PALETTE.length]; return typeColors[t]; }
+(GRAPH.nodes||[]).forEach(n=>colorFor(n.type||"note"));
+
+const nodes = GRAPH.nodes.map(n=>({...n, type:n.type||"note", links:n.links||[]}));
+const byId = Object.fromEntries(nodes.map(n=>[n.id,n]));
+const links = (GRAPH.links||[]).filter(l=>byId[l[0]]&&byId[l[1]]).map(l=>({s:l[0],t:l[1]}));
+const deg={}; links.forEach(l=>{deg[l.s]=(deg[l.s]||0)+1;deg[l.t]=(deg[l.t]||0)+1;});
+const adj={}; nodes.forEach(n=>adj[n.id]=new Set());
+links.forEach(l=>{adj[l.s].add(l.t);adj[l.t].add(l.s);});
+document.getElementById("count").textContent = `${nodes.length} tugun · ${links.length} bog'liqlik`;
+const legend=document.getElementById("legend");
+legend.innerHTML = Object.keys(typeColors).slice(0,8).map(t=>`<span><i class="dot" style="background:${typeColors[t]}"></i>${t}</span>`).join("");
+
+const cv=document.getElementById("c"), ctx=cv.getContext("2d");
+let W,H,DPR; function resize(){DPR=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*DPR;cv.height=H*DPR;cv.style.width=W+"px";cv.style.height=H+"px";ctx.setTransform(DPR,0,0,DPR,0,0);}
+resize(); addEventListener("resize",resize);
+let cx=W/2, cy=H/2, scale=1;
+nodes.forEach((n,i)=>{const a=i/Math.max(nodes.length,1)*6.283;n.x=W/2+Math.cos(a)*180;n.y=H/2+Math.sin(a)*180;n.vx=0;n.vy=0;n.r=5+Math.sqrt(deg[n.id]||1)*2.2;});
+const cssVar=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function tick(){
+  for(let i=0;i<nodes.length;i++){const a=nodes[i];
+    for(let j=i+1;j<nodes.length;j++){const b=nodes[j];let dx=a.x-b.x,dy=a.y-b.y,d2=dx*dx+dy*dy||1;if(d2<120000){let f=2000/d2,d=Math.sqrt(d2);dx/=d;dy/=d;a.vx+=dx*f;a.vy+=dy*f;b.vx-=dx*f;b.vy-=dy*f;}}
+    a.vx+=(W/2-a.x)*0.002;a.vy+=(H/2-a.y)*0.002;
+  }
+  links.forEach(l=>{const a=byId[l.s],b=byId[l.t];let dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||1,f=(d-95)*0.02;dx/=d;dy/=d;a.vx+=dx*f;a.vy+=dy*f;b.vx-=dx*f;b.vy-=dy*f;});
+  nodes.forEach(n=>{if(n===drag)return;n.vx*=0.86;n.vy*=0.86;n.x+=n.vx;n.y+=n.vy;});
+}
+let hover=null, sel=null, drag=null, q="";
+function visible(n){return !q || n.id.toLowerCase().includes(q) || (n.label||"").toLowerCase().includes(q) || (n.desc||"").toLowerCase().includes(q) || (n.body||"").toLowerCase().includes(q);}
+function label(n){return n.label || n.id.replace(/-/g," ");}
+function draw(){
+  tick(); ctx.clearRect(0,0,W,H);
+  ctx.save();ctx.translate(cx-W/2*scale,cy-H/2*scale);ctx.scale(scale,scale);
+  const hot=hover||sel;
+  links.forEach(l=>{const near=hot&&(l.s===hot.id||l.t===hot.id);
+    ctx.strokeStyle=near?cssVar("--edge-hot"):cssVar("--edge");
+    ctx.globalAlpha=hot?(near?0.95:0.22):0.6; ctx.lineWidth=near?1.8:1;
+    ctx.beginPath();ctx.moveTo(byId[l.s].x,byId[l.s].y);ctx.lineTo(byId[l.t].x,byId[l.t].y);ctx.stroke();});
+  ctx.globalAlpha=1;
+  nodes.forEach(n=>{const show=visible(n)&&(!hot||n===hot||adj[hot.id].has(n.id));
+    ctx.globalAlpha=show?1:0.16;
+    if(n===hot){ctx.beginPath();ctx.arc(n.x,n.y,n.r+7,0,6.283);ctx.fillStyle=cssVar("--glow");ctx.fill();}
+    ctx.beginPath();ctx.arc(n.x,n.y,n.r,0,6.283);ctx.fillStyle=colorFor(n.type);ctx.fill();
+    if(n===sel){ctx.lineWidth=2;ctx.strokeStyle=cssVar("--fg");ctx.stroke();}
+    if(scale>0.55||n===hot||deg[n.id]>3){ctx.globalAlpha=show?1:0.16;ctx.fillStyle=cssVar("--fg");
+      ctx.font=(n===hot?"600 ":"")+"12px "+cssVar("--body").split(",")[0];ctx.textAlign="center";
+      ctx.fillText(label(n),n.x,n.y+n.r+13);}
+  });
+  ctx.restore();ctx.globalAlpha=1;requestAnimationFrame(draw);
+}
+function toWorld(px,py){return {x:(px-(cx-W/2*scale))/scale,y:(py-(cy-H/2*scale))/scale};}
+function pick(px,py){const w=toWorld(px,py);let best=null,bd=1e9;nodes.forEach(n=>{const d=Math.hypot(n.x-w.x,n.y-w.y);if(d<n.r+9&&d<bd){bd=d;best=n;}});return best;}
+let dragShift={x:0,y:0}, panning=false, panStart=null, moved=false;
+cv.addEventListener("pointerdown",e=>{cv.setPointerCapture(e.pointerId);moved=false;const n=pick(e.offsetX,e.offsetY);if(n){drag=n;const w=toWorld(e.offsetX,e.offsetY);dragShift={x:n.x-w.x,y:n.y-w.y};}else{panning=true;panStart={x:e.offsetX,y:e.offsetY,cx,cy};}});
+cv.addEventListener("pointermove",e=>{if(drag){const w=toWorld(e.offsetX,e.offsetY);drag.x=w.x+dragShift.x;drag.y=w.y+dragShift.y;drag.vx=drag.vy=0;moved=true;}else if(panning){cx=panStart.cx+(e.offsetX-panStart.x);cy=panStart.cy+(e.offsetY-panStart.y);moved=true;}else{const n=pick(e.offsetX,e.offsetY);hover=n;cv.style.cursor=n?"pointer":"grab";}});
+cv.addEventListener("pointerup",e=>{if(drag&&!moved)openNote(drag);else if(panning&&!moved){if(!pick(e.offsetX,e.offsetY))closeNote();}drag=null;panning=false;});
+cv.addEventListener("wheel",e=>{e.preventDefault();const f=e.deltaY<0?1.12:0.89;cx=e.offsetX-(e.offsetX-cx)*f;cy=e.offsetY-(e.offsetY-cy)*f;scale=Math.max(0.3,Math.min(3,scale*f));},{passive:false});
+function openNote(n){
+  sel=n;
+  document.getElementById("pt").textContent=label(n);
+  const b=document.getElementById("pb");b.textContent=n.type;b.style.background=colorFor(n.type)+"22";b.style.color=colorFor(n.type);
+  document.getElementById("ppath").textContent=n.path||"";
+  document.getElementById("pd").textContent=n.desc||"";
+  document.getElementById("pbody").textContent=(n.body||"").replace(/\*\*(.+?)\*\*/g,"$1");
+  const wl=document.getElementById("pwl"),chips=document.getElementById("pchips");const neigh=[...adj[n.id]];
+  if(neigh.length){wl.hidden=false;chips.innerHTML=neigh.map(id=>`<button class="lnk" data-id="${id.replace(/"/g,'&quot;')}">${label(byId[id])}</button>`).join("");}else wl.hidden=true;
+  const p=document.getElementById("panel");p.classList.add("open");p.setAttribute("aria-hidden","false");
+}
+function closeNote(){sel=null;const p=document.getElementById("panel");p.classList.remove("open");p.setAttribute("aria-hidden","true");}
+document.getElementById("px").onclick=closeNote;
+document.getElementById("pchips").onclick=e=>{const id=e.target.dataset.id;if(id&&byId[id])openNote(byId[id]);};
+document.getElementById("q").addEventListener("input",e=>{q=e.target.value.trim().toLowerCase();});
+addEventListener("keydown",e=>{if(e.key==="Escape")closeNote();});
+draw();
+</script>

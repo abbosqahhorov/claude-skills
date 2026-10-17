@@ -1,0 +1,12 @@
+{
+  "name": "graphview",
+  "version": "0.1.0",
+  "description": "Render notes, docs, or a codebase as a beautiful, interactive Obsidian-style knowledge graph — one standalone HTML file, no dependencies.",
+  "author": {
+    "name": "Abbos Qahhorov",
+    "url": "https://github.com/abbosqahhorov"
+  },
+  "homepage": "https://github.com/abbosqahhorov/claude-skills",
+  "license": "MIT",
+  "keywords": ["knowledge-graph", "obsidian", "visualization", "graphify", "skill"]
+}

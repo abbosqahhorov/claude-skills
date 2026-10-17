@@ -1,0 +1,16 @@
+# Generated graphs (keep only the curated example under skills/*/examples/)
+knowledge-graph.html
+graph.json
+!skills/**/examples/knowledge-graph.html
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
