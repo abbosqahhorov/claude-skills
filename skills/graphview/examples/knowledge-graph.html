@@ -27,10 +27,12 @@ input:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline
 .legend{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11.5px;color:var(--muted)}
 .legend span{display:inline-flex;align-items:center;gap:5px}
 .dot{width:9px;height:9px;border-radius:50%}
+.ctrls{display:flex;gap:6px;flex-wrap:wrap}
+.ctrls button{font:inherit;font-size:12.5px;padding:5px 11px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--fg);cursor:pointer}
 .hint{font-size:11px;color:var(--muted);line-height:1.45}
 .panel{position:fixed;top:0;right:0;height:100%;width:min(380px,88vw);background:var(--panel);border-left:1px solid var(--line);z-index:4;transform:translateX(100%);transition:transform .22s ease;display:flex;flex-direction:column;box-shadow:-12px 0 40px rgba(0,0,0,.14);padding-right:env(safe-area-inset-right,0px)}
 .panel.open{transform:none}
-@media (prefers-reduced-motion:reduce){.panel{transition:none}*{scroll-behavior:auto}}
+@media (prefers-reduced-motion:reduce){.panel{transition:none}}
 .phead{padding:18px 18px 12px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:flex-start}
 .phead h2{font-family:var(--disp);font-size:20px;margin:0;line-height:1.2;flex:1;min-width:0;word-break:break-word}
 .badge{font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:5px;white-space:nowrap;margin-top:3px}
@@ -54,7 +56,11 @@ input:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline
   </div>
   <input id="q" type="search" placeholder="Qidirish…" aria-label="Qidirish" autocomplete="off">
   <div class="legend" id="legend"></div>
-  <div class="hint">Tugunni torting. Ustiga borsa bog'liqlari yonadi, bossa qaydi o'ngda ochiladi. G'ildirak — masshtab, bo'sh joy — surish.</div>
+  <div class="ctrls">
+    <button id="fit" type="button">Sig'dirish</button>
+    <button id="reset" type="button">Qayta</button>
+  </div>
+  <div class="hint">Tugunni torting. Ustiga borsa bog'liqlari yonadi, bossa qaydi o'ngda ochiladi. G'ildirak yoki ikki barmoq — masshtab, bo'sh joy — surish.</div>
 </div>
 
 <aside class="panel" id="panel" aria-hidden="true">
@@ -84,54 +90,104 @@ const links = (GRAPH.links||[]).filter(l=>byId[l[0]]&&byId[l[1]]).map(l=>({s:l[0
 const deg={}; links.forEach(l=>{deg[l.s]=(deg[l.s]||0)+1;deg[l.t]=(deg[l.t]||0)+1;});
 const adj={}; nodes.forEach(n=>adj[n.id]=new Set());
 links.forEach(l=>{adj[l.s].add(l.t);adj[l.t].add(l.s);});
-document.getElementById("count").textContent = `${nodes.length} tugun · ${links.length} bog'liqlik`;
+const N = nodes.length;
+document.getElementById("count").textContent = `${N} tugun · ${links.length} bog'liqlik`;
 const legend=document.getElementById("legend");
 legend.innerHTML = Object.keys(typeColors).slice(0,8).map(t=>`<span><i class="dot" style="background:${typeColors[t]}"></i>${t}</span>`).join("");
+// for big graphs, only the most-connected nodes keep a permanent label
+const sortedDeg=[...nodes].map(n=>deg[n.id]||0).sort((a,b)=>b-a);
+const labelMinDeg = N<=80 ? 0 : (sortedDeg[Math.min(sortedDeg.length-1, Math.floor(N*0.12))]||3);
 
 const cv=document.getElementById("c"), ctx=cv.getContext("2d");
-let W,H,DPR; function resize(){DPR=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*DPR;cv.height=H*DPR;cv.style.width=W+"px";cv.style.height=H+"px";ctx.setTransform(DPR,0,0,DPR,0,0);}
+let W,H,DPR; function resize(){DPR=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*DPR;cv.height=H*DPR;cv.style.width=W+"px";cv.style.height=H+"px";ctx.setTransform(DPR,0,0,DPR,0,0);reheat();}
 resize(); addEventListener("resize",resize);
 let cx=W/2, cy=H/2, scale=1;
-nodes.forEach((n,i)=>{const a=i/Math.max(nodes.length,1)*6.283;n.x=W/2+Math.cos(a)*180;n.y=H/2+Math.sin(a)*180;n.vx=0;n.vy=0;n.r=5+Math.sqrt(deg[n.id]||1)*2.2;});
+const spread = 60+40*Math.sqrt(N);
+nodes.forEach((n,i)=>{const a=i*2.399;const rr=spread*Math.sqrt((i+1)/N);n.x=W/2+Math.cos(a)*rr;n.y=H/2+Math.sin(a)*rr;n.vx=0;n.vy=0;n.r=5+Math.sqrt(deg[n.id]||1)*2.2;});
 const cssVar=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-function tick(){
-  for(let i=0;i<nodes.length;i++){const a=nodes[i];
-    for(let j=i+1;j<nodes.length;j++){const b=nodes[j];let dx=a.x-b.x,dy=a.y-b.y,d2=dx*dx+dy*dy||1;if(d2<120000){let f=2000/d2,d=Math.sqrt(d2);dx/=d;dy/=d;a.vx+=dx*f;a.vy+=dy*f;b.vx-=dx*f;b.vy-=dy*f;}}
-    a.vx+=(W/2-a.x)*0.002;a.vy+=(H/2-a.y)*0.002;
+
+// ---- physics: spatial-grid repulsion + springs + centering, with cooling ----
+let alpha=1, running=true, drag=null;
+const CELL=200, R2=CELL*CELL;
+function physics(){
+  const grid=new Map();
+  for(const n of nodes){const k=((n.x/CELL)|0)+","+((n.y/CELL)|0);let a=grid.get(k);if(!a)grid.set(k,a=[]);a.push(n);}
+  for(const n of nodes){
+    const gx=(n.x/CELL)|0, gy=(n.y/CELL)|0;
+    for(let ax=-1;ax<=1;ax++)for(let ay=-1;ay<=1;ay++){
+      const a=grid.get((gx+ax)+","+(gy+ay)); if(!a)continue;
+      for(const m of a){ if(m===n)continue; let dx=n.x-m.x,dy=n.y-m.y,d2=dx*dx+dy*dy; if(d2<1)d2=1; if(d2>R2)continue; const d=Math.sqrt(d2),f=1700/d2; n.vx+=dx/d*f; n.vy+=dy/d*f; }
+    }
   }
-  links.forEach(l=>{const a=byId[l.s],b=byId[l.t];let dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||1,f=(d-95)*0.02;dx/=d;dy/=d;a.vx+=dx*f;a.vy+=dy*f;b.vx-=dx*f;b.vy-=dy*f;});
-  nodes.forEach(n=>{if(n===drag)return;n.vx*=0.86;n.vy*=0.86;n.x+=n.vx;n.y+=n.vy;});
+  for(const l of links){const a=byId[l.s],b=byId[l.t];let dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||1,f=(d-95)*0.03;dx/=d;dy/=d;a.vx+=dx*f;a.vy+=dy*f;b.vx-=dx*f;b.vy-=dy*f;}
+  for(const n of nodes){n.vx+=(W/2-n.x)*0.003;n.vy+=(H/2-n.y)*0.003;}
+  for(const n of nodes){ if(n===drag){n.vx=n.vy=0;continue;} n.x+=n.vx*alpha; n.y+=n.vy*alpha; n.vx*=0.82; n.vy*=0.82; }
+  alpha += (0-alpha)*0.04; if(alpha<0.02) running=false;
 }
-let hover=null, sel=null, drag=null, q="";
+function reheat(){ alpha=Math.max(alpha,0.55); running=true; }
+
+// pre-settle headless so a big graph opens already laid out, then fit
+for(let i=0;i<140;i++) physics();
+function fit(){
+  if(!N) return;
+  let minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
+  for(const n of nodes){minX=Math.min(minX,n.x);minY=Math.min(minY,n.y);maxX=Math.max(maxX,n.x);maxY=Math.max(maxY,n.y);}
+  const pad=80, w=Math.max(maxX-minX,1), h=Math.max(maxY-minY,1);
+  scale=Math.max(0.3,Math.min(2,Math.min((W-pad*2)/w,(H-pad*2)/h)));
+  const wcx=(minX+maxX)/2, wcy=(minY+maxY)/2;
+  cx=W/2+scale*(W/2-wcx); cy=H/2+scale*(H/2-wcy);
+}
+fit();
+
+let hover=null, sel=null, q="";
 function visible(n){return !q || n.id.toLowerCase().includes(q) || (n.label||"").toLowerCase().includes(q) || (n.desc||"").toLowerCase().includes(q) || (n.body||"").toLowerCase().includes(q);}
 function label(n){return n.label || n.id.replace(/-/g," ");}
 function draw(){
-  tick(); ctx.clearRect(0,0,W,H);
+  if(running) physics();
+  ctx.clearRect(0,0,W,H);
   ctx.save();ctx.translate(cx-W/2*scale,cy-H/2*scale);ctx.scale(scale,scale);
   const hot=hover||sel;
-  links.forEach(l=>{const near=hot&&(l.s===hot.id||l.t===hot.id);
+  for(const l of links){const near=hot&&(l.s===hot.id||l.t===hot.id);
     ctx.strokeStyle=near?cssVar("--edge-hot"):cssVar("--edge");
-    ctx.globalAlpha=hot?(near?0.95:0.22):0.6; ctx.lineWidth=near?1.8:1;
-    ctx.beginPath();ctx.moveTo(byId[l.s].x,byId[l.s].y);ctx.lineTo(byId[l.t].x,byId[l.t].y);ctx.stroke();});
+    ctx.globalAlpha=hot?(near?0.95:0.14):(N>400?0.4:0.6); ctx.lineWidth=near?1.8:1;
+    ctx.beginPath();ctx.moveTo(byId[l.s].x,byId[l.s].y);ctx.lineTo(byId[l.t].x,byId[l.t].y);ctx.stroke();}
   ctx.globalAlpha=1;
-  nodes.forEach(n=>{const show=visible(n)&&(!hot||n===hot||adj[hot.id].has(n.id));
-    ctx.globalAlpha=show?1:0.16;
+  const showLabels = scale>0.55;
+  for(const n of nodes){const show=visible(n)&&(!hot||n===hot||adj[hot.id].has(n.id));
+    ctx.globalAlpha=show?1:0.14;
     if(n===hot){ctx.beginPath();ctx.arc(n.x,n.y,n.r+7,0,6.283);ctx.fillStyle=cssVar("--glow");ctx.fill();}
     ctx.beginPath();ctx.arc(n.x,n.y,n.r,0,6.283);ctx.fillStyle=colorFor(n.type);ctx.fill();
     if(n===sel){ctx.lineWidth=2;ctx.strokeStyle=cssVar("--fg");ctx.stroke();}
-    if(scale>0.55||n===hot||deg[n.id]>3){ctx.globalAlpha=show?1:0.16;ctx.fillStyle=cssVar("--fg");
+    if(show && (n===hot || (deg[n.id]||0)>=labelMinDeg) && (showLabels || n===hot || (N<=80))){
+      ctx.globalAlpha=show?1:0.14;ctx.fillStyle=cssVar("--fg");
       ctx.font=(n===hot?"600 ":"")+"12px "+cssVar("--body").split(",")[0];ctx.textAlign="center";
       ctx.fillText(label(n),n.x,n.y+n.r+13);}
-  });
+  }
   ctx.restore();ctx.globalAlpha=1;requestAnimationFrame(draw);
 }
 function toWorld(px,py){return {x:(px-(cx-W/2*scale))/scale,y:(py-(cy-H/2*scale))/scale};}
-function pick(px,py){const w=toWorld(px,py);let best=null,bd=1e9;nodes.forEach(n=>{const d=Math.hypot(n.x-w.x,n.y-w.y);if(d<n.r+9&&d<bd){bd=d;best=n;}});return best;}
-let dragShift={x:0,y:0}, panning=false, panStart=null, moved=false;
-cv.addEventListener("pointerdown",e=>{cv.setPointerCapture(e.pointerId);moved=false;const n=pick(e.offsetX,e.offsetY);if(n){drag=n;const w=toWorld(e.offsetX,e.offsetY);dragShift={x:n.x-w.x,y:n.y-w.y};}else{panning=true;panStart={x:e.offsetX,y:e.offsetY,cx,cy};}});
-cv.addEventListener("pointermove",e=>{if(drag){const w=toWorld(e.offsetX,e.offsetY);drag.x=w.x+dragShift.x;drag.y=w.y+dragShift.y;drag.vx=drag.vy=0;moved=true;}else if(panning){cx=panStart.cx+(e.offsetX-panStart.x);cy=panStart.cy+(e.offsetY-panStart.y);moved=true;}else{const n=pick(e.offsetX,e.offsetY);hover=n;cv.style.cursor=n?"pointer":"grab";}});
-cv.addEventListener("pointerup",e=>{if(drag&&!moved)openNote(drag);else if(panning&&!moved){if(!pick(e.offsetX,e.offsetY))closeNote();}drag=null;panning=false;});
+function pick(px,py){const w=toWorld(px,py);let best=null,bd=1e9;for(const n of nodes){const d=Math.hypot(n.x-w.x,n.y-w.y);if(d<n.r+9&&d<bd){bd=d;best=n;}}return best;}
+
+// ---- pointer: drag node / pan / pinch-zoom ----
+const pts=new Map(); let dragShift={x:0,y:0}, panning=false, panStart=null, moved=false, pinch=null;
+cv.addEventListener("pointerdown",e=>{cv.setPointerCapture(e.pointerId);pts.set(e.pointerId,{x:e.offsetX,y:e.offsetY});
+  if(pts.size===2){const p=[...pts.values()];pinch={d:Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y),mx:(p[0].x+p[1].x)/2,my:(p[0].y+p[1].y)/2};drag=panning=false;return;}
+  moved=false;const n=pick(e.offsetX,e.offsetY);
+  if(n){drag=n;const w=toWorld(e.offsetX,e.offsetY);dragShift={x:n.x-w.x,y:n.y-w.y};reheat();}else{panning=true;panStart={x:e.offsetX,y:e.offsetY,cx,cy};}});
+cv.addEventListener("pointermove",e=>{ if(pts.has(e.pointerId))pts.set(e.pointerId,{x:e.offsetX,y:e.offsetY});
+  if(pinch&&pts.size>=2){const p=[...pts.values()];const nd=Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y)||1;const f=nd/pinch.d;const mx=pinch.mx,my=pinch.my;cx=mx-(mx-cx)*f;cy=my-(my-cy)*f;scale=Math.max(0.3,Math.min(3,scale*f));pinch.d=nd;pinch.mx=(p[0].x+p[1].x)/2;pinch.my=(p[0].y+p[1].y)/2;return;}
+  if(drag){const w=toWorld(e.offsetX,e.offsetY);drag.x=w.x+dragShift.x;drag.y=w.y+dragShift.y;drag.vx=drag.vy=0;moved=true;reheat();}
+  else if(panning){cx=panStart.cx+(e.offsetX-panStart.x);cy=panStart.cy+(e.offsetY-panStart.y);moved=true;}
+  else{const n=pick(e.offsetX,e.offsetY);hover=n;cv.style.cursor=n?"pointer":"grab";}});
+function up(e){ pts.delete(e.pointerId); if(pts.size<2)pinch=null;
+  if(drag&&!moved)openNote(drag); else if(panning&&!moved){if(!pick(e.offsetX,e.offsetY))closeNote();}
+  drag=null;panning=false; }
+cv.addEventListener("pointerup",up); cv.addEventListener("pointercancel",up);
 cv.addEventListener("wheel",e=>{e.preventDefault();const f=e.deltaY<0?1.12:0.89;cx=e.offsetX-(e.offsetX-cx)*f;cy=e.offsetY-(e.offsetY-cy)*f;scale=Math.max(0.3,Math.min(3,scale*f));},{passive:false});
+
+document.getElementById("fit").onclick=()=>fit();
+document.getElementById("reset").onclick=()=>{cx=W/2;cy=H/2;scale=1;reheat();};
+
 function openNote(n){
   sel=n;
   document.getElementById("pt").textContent=label(n);
